@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/smira/aptly/query"
 	"github.com/smira/commander"
 	"github.com/smira/flag"
@@ -25,6 +27,10 @@ func aptlyMirrorEdit(cmd *commander.Command, args []string) error {
 	}
 
 	context.Flags().Visit(func(flag *flag.Flag) {
+		if err != nil {
+			return
+		}
+
 		switch flag.Name {
 		case "filter":
 			repo.Filter = flag.Value.String()
@@ -34,8 +40,36 @@ func aptlyMirrorEdit(cmd *commander.Command, args []string) error {
 			repo.DownloadSources = flag.Value.Get().(bool)
 		case "with-udebs":
 			repo.DownloadUdebs = flag.Value.Get().(bool)
+		case "with-repo-packages":
+			repo.PackagesFromRepos = nil
+			if queryRepos := flag.Value.String(); queryRepos != "" {
+				queryRepoNames := strings.Split(queryRepos, ",")
+				for _, queryRepoName := range queryRepoNames {
+					queryRepo, err := context.CollectionFactory().LocalRepoCollection().ByName(queryRepoName)
+					if err != nil {
+						return
+					}
+					repo.PackagesFromRepos = append(repo.PackagesFromRepos, queryRepo.UUID)
+				}
+			}
+		case "with-mirror-packages":
+			repo.PackagesFromMirrors = nil
+			if queryRepos := flag.Value.String(); queryRepos != "" {
+				queryRepoNames := strings.Split(queryRepos, ",")
+				for _, queryRepoName := range queryRepoNames {
+					queryRepo, err := context.CollectionFactory().RemoteRepoCollection().ByName(queryRepoName)
+					if err != nil {
+						return
+					}
+					repo.PackagesFromMirrors = append(repo.PackagesFromMirrors, queryRepo.UUID)
+				}
+			}
 		}
 	})
+
+	if err != nil {
+		return fmt.Errorf("unable to edit: %s", err)
+	}
 
 	if repo.IsFlat() && repo.DownloadUdebs {
 		return fmt.Errorf("unable to edit: flat mirrors don't support udebs")
@@ -86,6 +120,7 @@ Example:
 	cmd.Flag.Bool("filter-with-deps", false, "when filtering, include dependencies of matching packages as well")
 	cmd.Flag.Bool("with-sources", false, "download source packages in addition to binary packages")
 	cmd.Flag.Bool("with-udebs", false, "download .udeb packages (Debian installer support)")
-
+	cmd.Flag.String("with-repo-packages", "", "when filtering, include packages contained in repos (comma separated)")
+	cmd.Flag.String("with-mirror-packages", "", "when filtering, include packages contained in mirrors (comma separated)")
 	return cmd
 }

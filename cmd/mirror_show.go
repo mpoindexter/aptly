@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/smira/aptly/deb"
 	"github.com/smira/aptly/utils"
 	"github.com/smira/commander"
 	"github.com/smira/flag"
-	"strings"
 )
 
 func aptlyMirrorShow(cmd *commander.Command, args []string) error {
@@ -53,6 +54,28 @@ func aptlyMirrorShow(cmd *commander.Command, args []string) error {
 			filterWithDeps = "yes"
 		}
 		fmt.Printf("Filter With Deps: %s\n", filterWithDeps)
+	}
+	if len(repo.PackagesFromMirrors) > 0 {
+		names := []string{}
+		for _, uuid := range repo.PackagesFromMirrors {
+			queryRepo, err := context.CollectionFactory().RemoteRepoCollection().ByUUID(uuid)
+			if err != nil {
+				return fmt.Errorf("unable to show: %s", err)
+			}
+			names = append(names, queryRepo.Name)
+		}
+		fmt.Printf("Include packages in mirrors: %s\n", strings.Join(names, ", "))
+	}
+	if len(repo.PackagesFromRepos) > 0 {
+		names := []string{}
+		for _, uuid := range repo.PackagesFromRepos {
+			queryRepo, err := context.CollectionFactory().LocalRepoCollection().ByUUID(uuid)
+			if err != nil {
+				return fmt.Errorf("unable to show: %s", err)
+			}
+			names = append(names, queryRepo.Name)
+		}
+		fmt.Printf("Include packages in repos: %s\n", strings.Join(names, ", "))
 	}
 	if repo.LastDownloadDate.IsZero() {
 		fmt.Printf("Last update: never\n")

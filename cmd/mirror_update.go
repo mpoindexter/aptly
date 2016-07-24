@@ -2,14 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+
 	"github.com/smira/aptly/deb"
 	"github.com/smira/aptly/query"
 	"github.com/smira/aptly/utils"
 	"github.com/smira/commander"
 	"github.com/smira/flag"
-	"os"
-	"os/signal"
-	"strings"
 )
 
 func aptlyMirrorUpdate(cmd *commander.Command, args []string) error {
@@ -67,7 +68,7 @@ func aptlyMirrorUpdate(cmd *commander.Command, args []string) error {
 		}
 
 		var oldLen, newLen int
-		oldLen, newLen, err = repo.ApplyFilter(context.DependencyOptions(), filterQuery)
+		oldLen, newLen, err = repo.ApplyFilter(context.DependencyOptions(), filterQuery, context.CollectionFactory())
 		if err != nil {
 			return fmt.Errorf("unable to update: %s", err)
 		}

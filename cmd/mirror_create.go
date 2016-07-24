@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/smira/aptly/deb"
 	"github.com/smira/aptly/query"
 	"github.com/smira/commander"
 	"github.com/smira/flag"
-	"strings"
 )
 
 func aptlyMirrorCreate(cmd *commander.Command, args []string) error {
@@ -44,6 +45,30 @@ func aptlyMirrorCreate(cmd *commander.Command, args []string) error {
 	repo.FilterWithDeps = context.Flags().Lookup("filter-with-deps").Value.Get().(bool)
 	repo.SkipComponentCheck = context.Flags().Lookup("force-components").Value.Get().(bool)
 	repo.SkipArchitectureCheck = context.Flags().Lookup("force-architectures").Value.Get().(bool)
+
+	if queryRepos := context.Flags().Lookup("with-repo-packages").Value.String(); queryRepos != "" {
+		repo.PackagesFromRepos = nil
+		queryRepoNames := strings.Split(queryRepos, ",")
+		for _, queryRepoName := range queryRepoNames {
+			queryRepo, err := context.CollectionFactory().LocalRepoCollection().ByName(queryRepoName)
+			if err != nil {
+				return fmt.Errorf("unable to create mirror: %s", err)
+			}
+			repo.PackagesFromRepos = append(repo.PackagesFromRepos, queryRepo.UUID)
+		}
+	}
+
+	if queryRepos := context.Flags().Lookup("with-mirror-packages").Value.String(); queryRepos != "" {
+		repo.PackagesFromMirrors = nil
+		queryRepoNames := strings.Split(queryRepos, ",")
+		for _, queryRepoName := range queryRepoNames {
+			queryRepo, err := context.CollectionFactory().RemoteRepoCollection().ByName(queryRepoName)
+			if err != nil {
+				return fmt.Errorf("unable to create mirror: %s", err)
+			}
+			repo.PackagesFromMirrors = append(repo.PackagesFromMirrors, queryRepo.UUID)
+		}
+	}
 
 	if repo.Filter != "" {
 		_, err = query.Parse(repo.Filter)
@@ -97,6 +122,8 @@ Example:
 	cmd.Flag.Bool("with-udebs", false, "download .udeb packages (Debian installer support)")
 	cmd.Flag.String("filter", "", "filter packages in mirror")
 	cmd.Flag.Bool("filter-with-deps", false, "when filtering, include dependencies of matching packages as well")
+	cmd.Flag.String("with-repo-packages", "", "when filtering, include packages contained in repos (comma separated)")
+	cmd.Flag.String("with-mirror-packages", "", "when filtering, include packages contained in mirrors (comma separated)")
 	cmd.Flag.Bool("force-components", false, "(only with component list) skip check that requested components are listed in Release file")
 	cmd.Flag.Bool("force-architectures", false, "(only with architecture list) skip check that requested architectures are listed in Release file")
 	cmd.Flag.Var(&keyRingsFlag{}, "keyring", "gpg keyring to use when verifying Release file (could be specified multiple times)")

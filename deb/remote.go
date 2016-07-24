@@ -3,12 +3,6 @@ package deb
 import (
 	"bytes"
 	"fmt"
-	"github.com/smira/aptly/aptly"
-	"github.com/smira/aptly/database"
-	"github.com/smira/aptly/http"
-	"github.com/smira/aptly/utils"
-	"github.com/smira/go-uuid/uuid"
-	"github.com/ugorji/go/codec"
 	"log"
 	"net/url"
 	"os"
@@ -20,6 +14,13 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/smira/aptly/aptly"
+	"github.com/smira/aptly/database"
+	"github.com/smira/aptly/http"
+	"github.com/smira/aptly/utils"
+	"github.com/smira/go-uuid/uuid"
+	"github.com/ugorji/go/codec"
 )
 
 // RemoteRepo statuses
@@ -58,6 +59,10 @@ type RemoteRepo struct {
 	Filter string
 	// FilterWithDeps to include dependencies from filter query
 	FilterWithDeps bool
+	// PackagesFromRepos lists repos we should include query for packages to include
+	PackagesFromRepos []string
+	// PackagesFromMirrors lists mirrors we should include query for packages to include
+	PackagesFromMirrors []string
 	// SkipComponentCheck skips component list verification
 	SkipComponentCheck bool
 	// SkipArchitectureCheck skips architecture list verification
@@ -490,14 +495,68 @@ func (repo *RemoteRepo) DownloadPackageIndexes(progress aptly.Progress, d aptly.
 }
 
 // ApplyFilter applies filtering to already built PackageList
-func (repo *RemoteRepo) ApplyFilter(dependencyOptions int, filterQuery PackageQuery) (oldLen, newLen int, err error) {
+func (repo *RemoteRepo) ApplyFilter(dependencyOptions int, filterQuery PackageQuery, collectionFactory *CollectionFactory) (oldLen, newLen int, err error) {
 	repo.packageList.PrepareIndex()
 
 	emptyList := NewPackageList()
 	emptyList.PrepareIndex()
 
+	queries := []PackageQuery{filterQuery}
+
+	if repo.PackagesFromRepos != nil {
+		repoCollection := collectionFactory.LocalRepoCollection()
+		for _, queryRepoUUID := range repo.PackagesFromRepos {
+			var queryRepo *LocalRepo
+			queryRepo, err = repoCollection.ByUUID(queryRepoUUID)
+			if err != nil {
+				return
+			}
+
+			err = repoCollection.LoadComplete(queryRepo)
+			if err != nil {
+				return
+			}
+
+			var query PackageQuery
+			query, err = buildQueryForReflist(queryRepo.RefList(), collectionFactory)
+			if err != nil {
+				return
+			}
+
+			if query != nil {
+				queries = append(queries, query)
+			}
+		}
+	}
+
+	if repo.PackagesFromMirrors != nil {
+		repoCollection := collectionFactory.RemoteRepoCollection()
+		for _, queryRepoUUID := range repo.PackagesFromMirrors {
+			var queryRepo *RemoteRepo
+			queryRepo, err = repoCollection.ByUUID(queryRepoUUID)
+			if err != nil {
+				return
+			}
+
+			err = repoCollection.LoadComplete(queryRepo)
+			if err != nil {
+				return
+			}
+
+			var query PackageQuery
+			query, err = buildQueryForReflist(queryRepo.RefList(), collectionFactory)
+			if err != nil {
+				return
+			}
+
+			if query != nil {
+				queries = append(queries, query)
+			}
+		}
+	}
+
 	oldLen = repo.packageList.Len()
-	repo.packageList, err = repo.packageList.Filter([]PackageQuery{filterQuery}, repo.FilterWithDeps, emptyList, dependencyOptions, repo.Architectures)
+	repo.packageList, err = repo.packageList.Filter(queries, repo.FilterWithDeps, emptyList, dependencyOptions, repo.Architectures)
 	if repo.packageList != nil {
 		newLen = repo.packageList.Len()
 	}
@@ -747,4 +806,38 @@ func (collection *RemoteRepoCollection) Drop(repo *RemoteRepo) error {
 	}
 
 	return collection.db.Delete(repo.RefKey())
+}
+
+func buildQueryForReflist(reflist *PackageRefList, collectionFactory *CollectionFactory) (q PackageQuery, err error) {
+	if reflist == nil {
+		return
+	}
+
+	err = reflist.ForEach(func(key []byte) error {
+		p, err := collectionFactory.PackageCollection().ByKey(key)
+		if err != nil {
+			return err
+		}
+		packageQuery := &DependencyQuery{
+			Dep: Dependency{
+				Pkg:      p.Name,
+				Relation: VersionDontCare,
+			},
+		}
+		if q == nil {
+			q = packageQuery
+		} else {
+			q = &OrQuery{
+				L: q,
+				R: packageQuery,
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to load packages: %s", err)
+	}
+
+	return
 }
