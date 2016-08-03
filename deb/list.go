@@ -2,9 +2,10 @@ package deb
 
 import (
 	"fmt"
+	"sort"
+
 	"github.com/smira/aptly/aptly"
 	"github.com/smira/aptly/utils"
-	"sort"
 )
 
 // Dependency options
@@ -495,11 +496,11 @@ func (l *PackageList) Filter(queries []PackageQuery, withDependencies bool, sour
 			for _, dep := range missing {
 				// dependency might have already been satisfied
 				// with packages already been added
-				if result.Search(dep, false) != nil {
+				if dependencyOptions&DepFollowAllVariants == 0 && result.Search(dep, false) != nil {
 					continue
 				}
 
-				searchResults := l.Search(dep, false)
+				searchResults := l.Search(dep, dependencyOptions&DepFollowAllVariants != 0)
 				if searchResults != nil {
 					for _, p := range searchResults {
 						result.Add(p)
